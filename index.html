@@ -5,11 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wall AR with Audio</title>
 
+  <!-- model-viewer web component -->
   <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
 
   <style>
     html,body { margin:0; height:100%; background:#111; }
-    /* Transparent start image overlay (doesn't block the AR button) */
+    model-viewer { width:100%; height:100%; display:block; }
+
+    /* Transparent start image overlay (stays until first placement) */
     #startOverlay{
       position:fixed; inset:0; display:grid; place-items:center;
       background:rgba(0,0,0,.35); z-index:10; transition:opacity .35s; pointer-events:none;
@@ -39,7 +42,7 @@
   </style>
 </head>
 <body>
-  <!-- Start image overlay (stays until first placement) -->
+  <!-- Start image overlay -->
   <div id="startOverlay">
     <div>
       <img id="startImg" src="./StartImage.png" alt="Start" />
@@ -50,8 +53,9 @@
   <model-viewer id="mv"
     src="./PortalANimMus-02.glb"
     ar
-    ar-modes="webxr"                 <!-- ⬅️ Force WebXR: no Scene Viewer auto-placement -->
-    ar-placement="wall"              <!-- ⬅️ Vertical surface placement -->
+    ar-modes="webxr quick-look"          <!-- Android=WebXR (tap+wall); iOS=Quick Look fallback -->
+    ios-src="./PortalANimMus-02.usdz"    <!-- needed so iOS opens AR -->
+    ar-placement="wall"                   <!-- vertical plane when WebXR runs -->
     ar-scale="fixed"
     xr-environment
     camera-controls
@@ -67,6 +71,7 @@
   <div id="hint">Move your phone to find a wall, then tap to place.</div>
   <button id="unmute">Tap to enable audio</button>
 
+  <!-- Background/scene audio (WebXR path only) -->
   <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
 
   <script>
@@ -77,8 +82,20 @@
     const startOverlay = document.getElementById('startOverlay');
 
     let audioUnlocked = false;
+    let placed = false;
 
-    // --- Your existing audio unlock flow ---
+    // --- Make Android use WebXR (tap+wall) and iOS use Quick Look automatically
+    const isiOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+    if (isiOS) {
+      // iOS: Quick Look (opens native viewer; no page audio control)
+      mv.setAttribute('ar-modes', 'quick-look');
+    } else {
+      // Android: WebXR with wall placement and tap-to-place
+      mv.setAttribute('ar-modes', 'webxr');
+      mv.setAttribute('ar-placement', 'wall');
+    }
+
+    // --- Audio unlock (only meaningful in WebXR; Quick Look leaves the page)
     async function unlockAudioOnce() {
       if (audioUnlocked) return;
       try { await bg.play(); bg.pause(); audioUnlocked = true; unmute.style.display = 'none'; }
@@ -91,18 +108,25 @@
       try { await bg.play(); audioUnlocked = true; unmute.style.display = 'none'; } catch(e) {}
     });
 
-    // Keep overlay until *first* placement; start audio then
+    // Keep overlay until placement (WebXR). For iOS Quick Look, hide on button tap.
     mv.addEventListener('ar-status', (e) => {
       const status = e.detail.status; // 'not-presenting' | 'session-started' | 'failed'
       if (status !== 'session-started') bg.pause();
     });
 
     mv.addEventListener('ar-placement', async () => {
-      // First time the user taps to place on a wall:
+      if (placed) return;
+      placed = true;
       startOverlay.classList.add('hidden');
-      if (bg.paused) {
-        try { await bg.play(); } catch(e) { /* user may need to unmute */ }
+      // Start audio after placement (WebXR path)
+      if (!isiOS && bg.paused) {
+        try { await bg.play(); } catch(e) {}
       }
+    });
+
+    // When iOS Quick Look button is tapped (leaves the page), hide overlay so it’s gone when returning
+    mv.addEventListener('quick-look-button-tapped', () => {
+      startOverlay.classList.add('hidden');
     });
   </script>
 </body>
