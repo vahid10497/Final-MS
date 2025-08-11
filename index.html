@@ -1,120 +1,275 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>Wall AR – Tap to Place</title>
-<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
-<style>
-  html,body{margin:0;height:100%;background:#111}
-  model-viewer{width:100%;height:100%;display:block}
-  /* Start overlay */
-  #startOverlay{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.35);z-index:10;transition:opacity .35s}
-  #startOverlay.hidden{opacity:0;pointer-events:none}
-  #startImg{max-width:min(90vw,520px);width:90vw;opacity:.85;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-  #overlayCaption{margin-top:10px;text-align:center;color:#fff;font:600 16px/1.3 system-ui;text-shadow:0 2px 8px rgba(0,0,0,.5)}
-  /* Always-visible AR button */
-  #startAR{position:fixed;right:16px;bottom:16px;z-index:20;padding:10px 14px;border:none;border-radius:999px;background:#fff;font:600 14px system-ui}
-  /* Hint + status */
-  #hint{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);padding:8px 12px;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;font:14px system-ui;display:none;z-index:5}
-  model-viewer[ar-status="session-started"] ~ #hint{display:block}
-  #status{position:fixed;left:50%;top:16px;transform:translateX(-50%);background:#fff;padding:10px 14px;border-radius:12px;font:14px system-ui;display:none;z-index:30;max-width:90vw;text-align:center}
-  #unmute{position:fixed;left:50%;top:64px;transform:translateX(-50%);padding:8px 12px;border:none;border-radius:999px;background:#fff;z-index:30;display:none}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>WebXR Wall AR – tap to place</title>
+
+  <style>
+    html,body { margin:0; height:100%; background:#111; overflow:hidden; }
+    canvas { display:block; }
+
+    /* Always-visible status bubble (errors/tips) */
+    #status {
+      position: fixed; left:50%; top:12px; transform: translateX(-50%);
+      background:#fff; color:#111; padding:10px 14px; border-radius:12px;
+      font:14px system-ui; z-index: 30; display:none; text-align:center; max-width: 92vw;
+    }
+
+    /* Start overlay with your picture */
+    #startOverlay {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      background: rgba(0,0,0,.35); z-index: 20; transition: opacity .35s ease;
+    }
+    #startOverlay.hidden { opacity: 0; pointer-events: none; }
+
+    #box {
+      display:flex; flex-direction:column; align-items:center;
+    }
+    #startImg {
+      width: min(92vw, 520px); height: auto; opacity: .85;
+      border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    #caption {
+      margin-top:10px; color:#fff; text-align:center;
+      font: 600 16px/1.3 system-ui; text-shadow: 0 2px 8px rgba(0,0,0,.5);
+    }
+
+    /* “Tap a wall” hint while session is running (before placement) */
+    #hint {
+      position: fixed; left:50%; bottom:16px; transform:translateX(-50%);
+      padding:8px 12px; border-radius:999px; background:rgba(0,0,0,.6); color:#fff;
+      font:14px system-ui; z-index: 25; display:none;
+    }
+
+    /* Manual unmute (if autoplay blocked) */
+    #unmute {
+      position:fixed; left:50%; top:62px; transform:translateX(-50%);
+      padding:8px 12px; border:none; border-radius:999px; background:#fff;
+      z-index: 30; display:none;
+    }
+
+    /* Always-visible “Enter AR” button */
+    #enterAR {
+      position:fixed; right:16px; bottom:16px; z-index: 30;
+      padding:10px 14px; border:none; border-radius:999px; background:#fff; font:600 14px system-ui;
+    }
+  </style>
 </head>
 <body>
-  <model-viewer id="mv"
-    src="./PortalANimMus-02.glb"
-    ios-src="./PortalANimMus-02.usdz"            <!-- add this file later; button works either way -->
-    ar
-    ar-modes="webxr quick-look"
-    ar-placement="wall"                           <!-- wall anchoring when WebXR runs -->
-    ar-scale="fixed"
-    xr-environment
-    camera-controls
-    interaction-prompt="none"
-    environment-image="neutral"
-    exposure="1">
-  </model-viewer>
+  <div id="status"></div>
 
-  <!-- Always-visible Start AR button -->
-  <button id="startAR">View in AR</button>
-
-  <!-- Instruction overlay until first placement -->
+  <!-- Instruction overlay (visible until first placement) -->
   <div id="startOverlay">
-    <div>
-      <img id="startImg" src="./StartImage.png" alt="Start Marker" />
-      <div id="overlayCaption">Point your phone at this image and tap on the wall to place.</div>
+    <div id="box">
+      <img id="startImg" src="./StartImage.png" alt="Start" />
+      <div id="caption">Point your phone at this image. Then <b>tap a wall</b> to place.</div>
     </div>
   </div>
 
-  <div id="hint">Move your phone to find a wall, then tap to place.</div>
-  <div id="status"></div>
+  <div id="hint">Move to detect a wall, then tap to place.</div>
 
-  <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
+  <!-- Fallback unmute button -->
   <button id="unmute">Tap to enable audio</button>
 
-<script>
-const mv = document.getElementById('mv');
-const startAR = document.getElementById('startAR');
-const startOverlay = document.getElementById('startOverlay');
-const hint = document.getElementById('hint');
-const statusBox = document.getElementById('status');
-const bg = document.getElementById('bg');
-const unmute = document.getElementById('unmute');
+  <!-- Always-visible start button -->
+  <button id="enterAR">View in AR</button>
 
-let audioUnlocked = false;
-let placed = false;
+  <!-- Audio (loop) -->
+  <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
 
-function status(msg){ statusBox.textContent = msg; statusBox.style.display='block'; setTimeout(()=>statusBox.style.display='none', 5000); }
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+    import { ARButton } from 'https://unpkg.com/three@0.160.0/examples/jsm/webxr/ARButton.js';
+    import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 
-// Unlock audio on first gesture
-async function unlockAudio(){
-  if (audioUnlocked) return;
-  try { await bg.play(); bg.pause(); audioUnlocked = true; unmute.style.display='none'; }
-  catch { unmute.style.display='block'; }
-}
-document.addEventListener('pointerdown', unlockAudio, { once:true });
-unmute.addEventListener('click', async ()=>{ try{ await bg.play(); audioUnlocked = true; unmute.style.display='none'; }catch{} });
+    // --- UI refs
+    const statusBox = document.getElementById('status');
+    const startOverlay = document.getElementById('startOverlay');
+    const hint = document.getElementById('hint');
+    const enterAR = document.getElementById('enterAR');
+    const bg = document.getElementById('bg');
+    const unmute = document.getElementById('unmute');
 
-// Start AR when the visible button is pressed
-startAR.addEventListener('click', async ()=>{
-  await unlockAudio();
-  try {
-    await mv.activateAR();         // works even if the stock AR button is hidden
-  } catch (e) {
-    status('Could not start AR: ' + (e?.message || e || 'Open in Safari (iOS 17+) or Chrome (Android).'));
-  }
-});
+    let audioUnlocked = false;
+    function status(msg, ms=5000){
+      statusBox.textContent = msg;
+      statusBox.style.display = 'block';
+      if (ms > 0) setTimeout(() => statusBox.style.display = 'none', ms);
+    }
 
-// AR lifecycle
-mv.addEventListener('ar-status', async (e)=>{
-  const {status:st, reason} = e.detail || {};
-  if (st === 'session-started'){
-    if (audioUnlocked) bg.play().catch(()=>{});
-    hint.style.display = 'block';
-  } else if (st === 'failed'){
-    status('AR failed: ' + (reason || 'Unknown. If on iPhone, ensure Safari + iOS 17+.'));
-  } else {
-    bg.pause();
-  }
-});
+    // --- Three.js setup
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 50);
+    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    document.body.appendChild(renderer.domElement);
 
-// Only after explicit tap-to-place
-mv.addEventListener('ar-placement', async ()=>{
-  if (placed) return;
-  placed = true;
-  startOverlay.classList.add('hidden');
-  hint.style.display = 'none';
+    // Light (for unlit GLBs it's fine; for PBR give a bit of light)
+    const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+    scene.add(light);
 
-  try {
-    const anims = mv.availableAnimations || [];
-    if (anims.length) mv.animationName = anims[0];
-    mv.play({ repetitions: Infinity });
-  } catch {}
+    // Reticle for wall placement (a thin ring)
+    const reticle = new THREE.Mesh(
+      new THREE.RingGeometry(0.06, 0.08, 48, 1),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
 
-  try { await bg.play(); } catch {}
-});
-</script>
+    // Audio
+    const listener = new THREE.AudioListener();
+    camera.add(listener);
+    const sound = new THREE.Audio(listener);
+    const audioLoader = new THREE.AudioLoader();
+    audioLoader.load('./museumversion_250709.mp3', buffer => {
+      sound.setBuffer(buffer);
+      sound.setLoop(true);
+      sound.setVolume(1.0);
+    });
+
+    // GLB
+    const loader = new GLTFLoader();
+    let portal, mixer, clipAction;
+    loader.load('./PortalANimMus-02.glb', (gltf) => {
+      portal = gltf.scene;
+      portal.visible = false; // show only after placement
+      scene.add(portal);
+
+      if (gltf.animations && gltf.animations.length) {
+        mixer = new THREE.AnimationMixer(portal);
+        clipAction = mixer.clipAction(gltf.animations[0]);
+        clipAction.setLoop(THREE.LoopRepeat);
+      }
+    });
+
+    // Handle resize
+    window.addEventListener('resize', ()=>{
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // --- WebXR AR session + hit-test
+    let xrSession, xrRefSpace, viewerSpace, hitTestSource = null;
+    let placed = false;
+
+    // Always-visible button starts AR (or shows a helpful error)
+    enterAR.addEventListener('click', async ()=>{
+      await unlockAudio();
+      try {
+        if (!navigator.xr) throw new Error('WebXR not detected. Use Safari (iOS 17+) or Chrome (Android).');
+        const supported = await navigator.xr.isSessionSupported('immersive-ar');
+        if (!supported) throw new Error('AR not supported here. Use Safari (iOS 17+) or Chrome (Android).');
+
+        xrSession = await navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['dom-overlay', 'unbounded', 'anchors'],
+          domOverlay: { root: document.body }
+        });
+
+        renderer.xr.setSession(xrSession);
+
+        xrRefSpace = await xrSession.requestReferenceSpace('local');
+        viewerSpace = await xrSession.requestReferenceSpace('viewer');
+        hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+
+        xrSession.addEventListener('end', () => {
+          hint.style.display = 'none';
+          // reset for next time
+          placed = false;
+          reticle.visible = false;
+          if (portal) portal.visible = false;
+          sound.stop();
+        });
+
+        // show hint when session starts
+        hint.style.display = 'block';
+        statusBox.style.display = 'none';
+
+        // tap to place
+        const controller = renderer.xr.getController(0);
+        controller.addEventListener('select', () => {
+          if (!reticle.visible || placed || !portal) return;
+          // place model at reticle pose
+          portal.matrix.copy(reticle.matrix);
+          portal.matrix.decompose(portal.position, portal.quaternion, portal.scale);
+          portal.visible = true;
+          placed = true;
+
+          // hide overlays
+          startOverlay.classList.add('hidden');
+          hint.style.display = 'none';
+
+          // start animation + audio
+          if (clipAction) { clipAction.play(); }
+          if (sound.buffer && !sound.isPlaying) {
+            try { sound.play(); } catch(e) {}
+          }
+        });
+        scene.add(controller);
+
+        renderer.setAnimationLoop(renderLoop);
+
+      } catch (e) {
+        status(e.message || String(e));
+      }
+    });
+
+    // Try to keep audio policies happy
+    async function unlockAudio(){
+      if (audioUnlocked) return;
+      try { await bg.play(); bg.pause(); audioUnlocked = true; unmute.style.display='none'; }
+      catch { unmute.style.display='block'; }
+    }
+    document.addEventListener('pointerdown', unlockAudio, { once:true });
+    unmute.addEventListener('click', async ()=>{ try { await bg.play(); audioUnlocked = true; unmute.style.display='none'; } catch{} });
+
+    // Vertical plane test using hit pose orientation:
+    // Get surface normal from -Z of pose; if |normal.y| ~ 0 -> vertical
+    const poseMatrix = new THREE.Matrix4();
+    const poseQuat = new THREE.Quaternion();
+    const normal = new THREE.Vector3();
+
+    function isVerticalFromPose(poseMatrix){
+      poseQuat.setFromRotationMatrix(poseMatrix);
+      normal.set(0,0,-1).applyQuaternion(poseQuat); // plane normal
+      return Math.abs(normal.y) < 0.3; // tweak threshold if needed (0=perfectly vertical)
+    }
+
+    function renderLoop(timestamp, frame){
+      if (mixer) mixer.update(renderer.xr.getFrame().? 0.016 : 0.016); // simple tick when animating
+
+      if (frame && hitTestSource && !placed){
+        const hits = frame.getHitTestResults(hitTestSource);
+        if (hits.length){
+          const hit = hits[0];
+          const pose = hit.getPose(xrRefSpace);
+          if (pose){
+            poseMatrix.fromArray(pose.transform.matrix);
+            // show reticle only for vertical planes
+            if (isVerticalFromPose(poseMatrix)){
+              reticle.visible = true;
+              reticle.matrix.copy(poseMatrix);
+              // rotate the ring to face the user (optional)
+              const m = new THREE.Matrix4().copy(poseMatrix);
+              const q = new THREE.Quaternion().setFromRotationMatrix(m);
+              const e = new THREE.Euler().setFromQuaternion(q);
+              reticle.rotation.set(e.x, e.y, e.z);
+            } else {
+              reticle.visible = false;
+            }
+          }
+        } else {
+          reticle.visible = false;
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+  </script>
 </body>
 </html>
