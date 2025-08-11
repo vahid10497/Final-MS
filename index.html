@@ -4,94 +4,76 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wall AR with Start Image + Audio</title>
-
   <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
-
   <style>
     html,body { margin:0; height:100%; background:#111; }
     model-viewer { width:100%; height:100%; display:block; }
-
-    /* Overlay: semi-transparent image + text */
     .start-overlay {
-      position: fixed; inset: 0;
-      display: grid; place-items: center;
-      background: rgba(0,0,0,0.35);
-      z-index: 10;                 /* above the viewer */
-      transition: opacity .35s ease;
+      position: fixed; inset: 0; display: grid; place-items: center;
+      background: rgba(0,0,0,0.35); z-index: 10; transition: opacity .35s ease;
+      pointer-events: none;
     }
-    .start-overlay.hidden { opacity: 0; pointer-events: none; }
-    .overlay-inner {
-      position: relative;
-      max-width: min(90vw, 520px);
-      aspect-ratio: 1/1;
-    }
+    .start-overlay.hidden { opacity:0; pointer-events:none; }
+    .overlay-inner { position: relative; max-width:min(90vw,520px); aspect-ratio:1/1; }
     .overlay-inner::before {
-      content: "";
-      position: absolute; inset: 0;
-      background: center/contain no-repeat url("./StartImage.png");
-      opacity: .85;                /* <- transparency of your picture */
-      border-radius: 12px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      content:""; position:absolute; inset:0;
+      background:center/contain no-repeat url("./StartImage.png");
+      opacity:.85; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.35);
     }
     .overlay-text {
-      position: absolute; left: 50%; bottom: -3.5rem; transform: translateX(-50%);
-      width: 100%; text-align: center;
-      color: #fff; font: 600 16px/1.3 system-ui, sans-serif;
-      text-shadow: 0 2px 8px rgba(0,0,0,.5);
-      padding: .5rem 1rem;
+      position:absolute; left:50%; bottom:-3.5rem; transform:translateX(-50%);
+      width:100%; text-align:center; color:#fff; font:600 16px/1.3 system-ui, sans-serif;
+      text-shadow:0 2px 8px rgba(0,0,0,.5); padding:.5rem 1rem;
     }
-
-    /* AR hint bar while session is running (before placement) */
     #hint {
       position: fixed; left:50%; bottom:16px; transform:translateX(-50%);
       padding:8px 12px; border-radius:999px; background:rgba(0,0,0,.6); color:#fff;
-      font:14px/1.2 system-ui, sans-serif; display:none; z-index: 5;
+      font:14px/1.2 system-ui, sans-serif; display:none; z-index:5;
     }
     model-viewer[ar-status="session-started"] ~ #hint { display:block; }
     .hidden-hint { display:none !important; }
-
-    /* Unmute button fallback (if autoplay blocked) */
     #unmute {
       position:fixed; left:50%; top:16px; transform:translateX(-50%);
-      padding:8px 12px; border:none; border-radius:999px; background:#fff;
-      z-index: 15; display:none;
+      padding:8px 12px; border:none; border-radius:999px; background:#fff; z-index:15; display:none;
     }
-
-    /* Ensure overlay doesn’t block AR button taps */
-    .start-overlay { pointer-events: none; }
-    .overlay-inner, .overlay-text { pointer-events: none; }
+    #iosMessage {
+      position: fixed; left:50%; top:16px; transform:translateX(-50%);
+      background:#fff; padding:10px 14px; border-radius:12px; font:14px system-ui;
+      display: none; z-index: 20; text-align:center; max-width: 90vw;
+    }
   </style>
 </head>
 <body>
   <model-viewer id="mv"
     src="./PortalANimMus-02.glb"
+    ios-src="./PortalANimMus-02.usdz"
     ar
-    ar-modes="webxr scene-viewer quick-look"
-    ar-placement="wall"                <!-- 🔑 vertical plane anchoring -->
+    ar-modes="webxr quick-look"
+    ar-placement="wall"                <!-- wall anchoring when WebXR is available -->
     ar-scale="fixed"
     xr-environment
     camera-controls
     interaction-prompt="none"
     environment-image="neutral"
     exposure="1">
-
-    <!-- AR button -->
     <button id="arBtn" slot="ar-button"
       style="position:absolute; right:16px; bottom:16px; padding:10px 14px; border-radius:999px; border:none; background:#fff;">
       View in AR
     </button>
   </model-viewer>
 
-  <!-- Instruction overlay (shows until first placement) -->
   <div id="overlay" class="start-overlay">
     <div class="overlay-inner"></div>
     <div class="overlay-text">Point your phone at this image and tap to place. The object will stick to the wall.</div>
   </div>
 
-  <!-- Hint while in AR before placement -->
   <div id="hint">Move your phone to find a wall, then tap to place.</div>
 
-  <!-- Audio (loops) -->
+  <div id="iosMessage">
+    If AR didn’t open: <b>Open this page in Safari</b> (Share → Open in Safari).<br/>
+    On older iOS, it will open Quick Look (floor only).
+  </div>
+
   <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
   <button id="unmute">Tap to enable audio</button>
 
@@ -102,11 +84,19 @@
     const hint = document.getElementById('hint');
     const bg = document.getElementById('bg');
     const unmute = document.getElementById('unmute');
+    const iosMessage = document.getElementById('iosMessage');
 
     let audioUnlocked = false;
     let placed = false;
 
-    // ---- Audio unlock handling (required by iOS/Android autoplay policies)
+    function isInAppBrowserOnIOS() {
+      const ua = navigator.userAgent || '';
+      const isIOS = /iP(hone|ad|od)/.test(ua);
+      const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
+      // In-app browsers often omit "Safari"
+      return isIOS && !isSafari;
+    }
+
     async function tryUnlockAudio() {
       if (audioUnlocked) return;
       try {
@@ -114,52 +104,59 @@
         bg.pause();
         audioUnlocked = true;
         unmute.style.display = 'none';
-      } catch (e) {
+      } catch {
         unmute.style.display = 'block';
       }
     }
+
     document.addEventListener('pointerdown', tryUnlockAudio, { once: true });
     arBtn.addEventListener('click', tryUnlockAudio);
     unmute.addEventListener('click', async () => {
-      try { await bg.play(); audioUnlocked = true; unmute.style.display = 'none'; } catch(e) {}
+      try { await bg.play(); audioUnlocked = true; unmute.style.display = 'none'; } catch {}
+
     });
 
-    // ---- Start/stop audio with AR session lifecycle
+    // WebXR support probe to show message early
+    if (isInAppBrowserOnIOS()) {
+      iosMessage.style.display = 'block';
+    } else if (navigator.xr && navigator.xr.isSessionSupported) {
+      navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+        if (!supported) iosMessage.style.display = 'block';
+      }).catch(() => { iosMessage.style.display = 'block'; });
+    }
+
     mv.addEventListener('ar-status', async (e) => {
       const status = e.detail.status; // 'not-presenting' | 'session-started' | 'failed'
       if (status === 'session-started') {
-        // show hint until placed; overlay stays until first placement too
+        iosMessage.style.display = 'none';
         hint.classList.remove('hidden-hint');
-        if (audioUnlocked) { try { await bg.play(); } catch(e) {} }
+        if (audioUnlocked) { try { await bg.play(); } catch {} }
+      } else if (status === 'failed') {
+        // If model-viewer couldn't start AR, show guidance
+        iosMessage.style.display = 'block';
+        bg.pause();
       } else {
         bg.pause();
       }
     });
 
-    // ---- On first placement: hide overlay, hide hint, start/loop animation + audio
     mv.addEventListener('ar-placement', async () => {
       if (placed) return;
       placed = true;
-
-      // Fade out overlay and remove hint
       overlay.classList.add('hidden');
       hint.classList.add('hidden-hint');
 
-      // Play first animation forever (if any)
+      // Start animation loop
       try {
         const anims = mv.availableAnimations || [];
         if (anims.length) {
           mv.animationName = anims[0];
-          mv.play({ repetitions: Infinity });
-        } else {
-          // If your GLB has a default animation that auto-plays only with 'autoplay',
-          // you could do: mv.setAttribute('autoplay','');  (but we keep it manual here)
-          mv.play({ repetitions: Infinity });
         }
-      } catch (e) { /* ignore */ }
+        mv.play({ repetitions: Infinity });
+      } catch {}
 
-      // Ensure audio is playing + looping
-      try { await bg.play(); } catch(e) { /* will show unmute if needed */ }
+      // Ensure audio is playing
+      try { await bg.play(); } catch {}
     });
   </script>
 </body>
