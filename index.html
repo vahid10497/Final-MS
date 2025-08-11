@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Wall AR – model-viewer</title>
+
+  <!-- model-viewer web component -->
+  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+  <style>
+    html,body { margin:0; height:100%; background:#111; }
+    #arHint {
+      position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+      padding: 8px 12px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff;
+      font: 14px/1.2 system-ui, sans-serif; display:none;
+    }
+    model-viewer[ar-status="session-started"] + #arHint { display:block; }
+  </style>
+</head>
+<body>
+  <!-- Your GLB is in the repo root -->
+  <model-viewer id="mv"
+    src="./PortalANimMus-02.glb"
+    ar
+    ar-modes="webxr scene-viewer quick-look"
+    ar-placement="wall"            <!-- 🔑 vertical/wall placement -->
+    ar-scale="fixed"
+    xr-environment
+    camera-controls
+    exposure="1.0"
+    environment-image="neutral"
+    style="width:100%; height:100%;">
+    <!-- Custom AR button (optional) -->
+    <button slot="ar-button"
+      style="position:absolute; right:16px; bottom:16px; padding:10px 14px; border-radius:999px; border:none; background:#fff;">
+      View in AR
+    </button>
+  </model-viewer>
+
+  <div id="arHint">Move your phone to find a wall, then tap to place.</div>
+
+  <script>
+    // Optional: small click when placement happens (remove if you don't add the file)
+    const mv = document.getElementById('mv');
+    const tap = new Audio('./tap.mp3'); // put a short click named tap.mp3 in repo root, or delete these two lines
+
+    mv.addEventListener('ar-placement', () => {
+      try { tap.play(); } catch(e) {}
+    });
+  </script>
+</body>
+</html>
