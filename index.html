@@ -3,143 +3,122 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Wall AR – tap to place + start image + audio</title>
+  <title>Wall AR with Audio</title>
 
-  <!-- model-viewer -->
+  <!-- model-viewer web component -->
   <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
 
   <style>
     html,body { margin:0; height:100%; background:#111; }
-    model-viewer { width:100%; height:100%; display:block; }
-
-    /* Start overlay with your image */
-    #startOverlay {
-      position: fixed; inset: 0;
-      display: grid; place-items: center;
-      background: rgba(0,0,0,.35);
-      z-index: 10;
-      transition: opacity .35s ease;
-      pointer-events: none; /* don't block AR button */
+    /* Transparent start image overlay */
+    #startOverlay{
+      position:fixed; inset:0; display:grid; place-items:center;
+      background:rgba(0,0,0,.35); z-index:10; transition:opacity .35s;
+      pointer-events:none; /* don't block your AR button */
     }
-    #startOverlay.hidden { opacity: 0; pointer-events: none; }
-
-    #overlayInner { display:flex; flex-direction:column; align-items:center; }
-    #startImg {
-      width: min(92vw, 520px);
-      height: auto;
-      opacity: .85;               /* adjust transparency */
-      border-radius: 12px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    #startOverlay.hidden{ opacity:0; pointer-events:none; }
+    #startBox{ display:flex; flex-direction:column; align-items:center; }
+    #startImg{
+      width:min(92vw,520px); height:auto; opacity:.85;
+      border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.35);
     }
-    #overlayCaption {
-      margin-top: 10px; color:#fff; text-align:center;
-      font: 600 16px/1.3 system-ui; text-shadow: 0 2px 8px rgba(0,0,0,.5);
-      padding: 0 12px;
+    #startCaption{
+      margin-top:10px; color:#fff; text-align:center;
+      font:600 16px/1.3 system-ui; text-shadow:0 2px 8px rgba(0,0,0,.5);
     }
 
-    /* Hint while AR session is active (before placement) */
+    /* Hint (unchanged) */
     #hint {
       position: fixed; left:50%; bottom:16px; transform:translateX(-50%);
       padding:8px 12px; border-radius:999px; background:rgba(0,0,0,.6); color:#fff;
-      font:14px/1.2 system-ui; display:none; z-index:5;
+      font:14px/1.2 system-ui, sans-serif; display:none;
     }
-    model-viewer[ar-status="session-started"] ~ #hint { display:block; }
+    model-viewer[ar-status="session-started"] + #hint { display:block; }
 
-    /* Unmute fallback (if autoplay blocked) */
     #unmute {
       position:fixed; left:50%; top:16px; transform:translateX(-50%);
-      padding:8px 12px; border:none; border-radius:999px; background:#fff; display:none; z-index:15;
+      padding:8px 12px; border:none; border-radius:999px; background:#fff; display:none;
     }
   </style>
 </head>
 <body>
+  <!-- 1) Transparent image before placement -->
+  <div id="startOverlay">
+    <div id="startBox">
+      <img id="startImg" src="./StartImage.png" alt="Start" />
+      <div id="startCaption">Point your phone at this image, then <b>tap a wall</b> to place.</div>
+    </div>
+  </div>
+
   <model-viewer id="mv"
     src="./PortalANimMus-02.glb"
     ar
-    ar-modes="webxr scene-viewer quick-look"  <!-- WebXR first (tap + wall); Android/iOS fallback allowed -->
-    ar-placement="wall"                        <!-- 🔑 vertical plane placement -->
+    ar-modes="webxr"                 <!-- 2) WebXR ONLY => no auto-placement fallback -->
+    ar-placement="wall"              <!-- vertical surface hit-test -->
     ar-scale="fixed"
     xr-environment
     camera-controls
-    interaction-prompt="none"
     environment-image="neutral"
-    exposure="1">
-
-    <!-- Your working AR button pattern -->
+    exposure="1"
+    style="width:100%; height:100%;">
     <button id="arBtn" slot="ar-button"
       style="position:absolute; right:16px; bottom:16px; padding:10px 14px; border-radius:999px; border:none; background:#fff;">
       View in AR
     </button>
   </model-viewer>
 
-  <!-- Start image overlay (visible until first placement) -->
-  <div id="startOverlay">
-    <div id="overlayInner">
-      <img id="startImg" src="./StartImage.png" alt="Start" />
-      <div id="overlayCaption">Point your phone at this image. Then <b>tap a wall</b> to place.</div>
-    </div>
-  </div>
-
-  <!-- Hint (only while session is running pre-placement) -->
-  <div id="hint">Move to detect a wall, then tap to place.</div>
-
-  <!-- Audio -->
-  <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
+  <!-- Keep #hint immediately after model-viewer (for your CSS selector to work) -->
+  <div id="hint">Move your phone to find a wall, then tap to place.</div>
   <button id="unmute">Tap to enable audio</button>
+
+  <!-- Background/scene audio -->
+  <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
 
   <script>
     const mv = document.getElementById('mv');
     const arBtn = document.getElementById('arBtn');
-    const startOverlay = document.getElementById('startOverlay');
-    const hint = document.getElementById('hint');
     const bg = document.getElementById('bg');
     const unmute = document.getElementById('unmute');
+    const startOverlay = document.getElementById('startOverlay');
 
-    let placed = false;
     let audioUnlocked = false;
+    let placed = false;
 
-    // ---- Audio unlock: prime on first user gesture and AR button tap
+    // Audio unlock (unchanged)
     async function unlockAudioOnce() {
       if (audioUnlocked) return;
       try { await bg.play(); bg.pause(); audioUnlocked = true; unmute.style.display = 'none'; }
       catch { unmute.style.display = 'block'; }
     }
-    document.addEventListener('pointerdown', unlockAudioOnce, { once: true });
+    const tryUnlock = () => { unlockAudioOnce(); document.removeEventListener('pointerdown', tryUnlock); };
+    document.addEventListener('pointerdown', tryUnlock, { once: true });
     arBtn.addEventListener('click', unlockAudioOnce);
     unmute.addEventListener('click', async () => {
-      try { await bg.play(); audioUnlocked = true; unmute.style.display = 'none'; } catch {}
+      try { await bg.play(); audioUnlocked = true; unmute.style.display = 'none'; } catch(e) {}
     });
 
-    // ---- Keep overlay until *placement*, not at session start
-    mv.addEventListener('ar-status', (e) => {
+    // Keep overlay until *first placement*
+    mv.addEventListener('ar-status', async (e) => {
       const status = e.detail.status; // 'not-presenting' | 'session-started' | 'failed'
       if (status === 'session-started') {
-        // Do NOT auto-play audio here (we wait for placement)
-        // Leave overlay on (it may not show inside AR on some devices; that's okay)
+        // don't remove overlay yet; don't force audio yet
       } else {
-        // session ended or failed
         bg.pause();
         placed = false;
+        startOverlay.classList.remove('hidden'); // show again if session ends
       }
     });
 
-    // ---- On first placement: hide overlay + hint, start anim + audio (loop)
+    // Hide overlay on first placement + start audio (your previous behavior kept)
     mv.addEventListener('ar-placement', async () => {
       if (placed) return;
       placed = true;
-
       startOverlay.classList.add('hidden');
-      hint.style.display = 'none';
 
-      // Start animation loop (first clip if available)
-      try {
-        const anims = mv.availableAnimations || [];
-        if (anims.length) mv.animationName = anims[0];
-        mv.play({ repetitions: Infinity });
-      } catch {}
-
-      // Start audio
-      try { await bg.play(); } catch {}
+      // start audio (as before)
+      if (bg.paused) {
+        try { await bg.play(); } catch(e) {}
+      }
     });
   </script>
 </body>
