@@ -3,39 +3,48 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Wall AR with Start Image + Audio</title>
+  <title>Wall AR – Tap to Place + Start Image + Audio</title>
   <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
   <style>
     html,body { margin:0; height:100%; background:#111; }
     model-viewer { width:100%; height:100%; display:block; }
-    .start-overlay {
+
+    /* Big overlay image + caption */
+    #startOverlay {
       position: fixed; inset: 0; display: grid; place-items: center;
       background: rgba(0,0,0,0.35); z-index: 10; transition: opacity .35s ease;
-      pointer-events: none;
     }
-    .start-overlay.hidden { opacity:0; pointer-events:none; }
-    .overlay-inner { position: relative; max-width:min(90vw,520px); aspect-ratio:1/1; }
-    .overlay-inner::before {
-      content:""; position:absolute; inset:0;
-      background:center/contain no-repeat url("./StartImage.png");
-      opacity:.85; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.35);
+    #startOverlay.hidden { opacity: 0; pointer-events: none; }
+    #startImg {
+      max-width: min(90vw, 520px);
+      width: 90vw;
+      height: auto;
+      opacity: .85;                /* adjust transparency here */
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      display:block;
     }
-    .overlay-text {
-      position:absolute; left:50%; bottom:-3.5rem; transform:translateX(-50%);
-      width:100%; text-align:center; color:#fff; font:600 16px/1.3 system-ui, sans-serif;
-      text-shadow:0 2px 8px rgba(0,0,0,.5); padding:.5rem 1rem;
+    #overlayCaption {
+      margin-top: 10px; text-align:center; color:#fff;
+      font: 600 16px/1.3 system-ui, sans-serif; text-shadow: 0 2px 8px rgba(0,0,0,.5);
     }
+
+    /* Hint while AR session is active (before placement) */
     #hint {
       position: fixed; left:50%; bottom:16px; transform:translateX(-50%);
       padding:8px 12px; border-radius:999px; background:rgba(0,0,0,.6); color:#fff;
       font:14px/1.2 system-ui, sans-serif; display:none; z-index:5;
     }
     model-viewer[ar-status="session-started"] ~ #hint { display:block; }
-    .hidden-hint { display:none !important; }
+    .hidden { display:none !important; }
+
+    /* Unmute button (when autoplay is blocked) */
     #unmute {
       position:fixed; left:50%; top:16px; transform:translateX(-50%);
       padding:8px 12px; border:none; border-radius:999px; background:#fff; z-index:15; display:none;
     }
+
+    /* Safari/in-app browser warning */
     #iosMessage {
       position: fixed; left:50%; top:16px; transform:translateX(-50%);
       background:#fff; padding:10px 14px; border-radius:12px; font:14px system-ui;
@@ -46,10 +55,9 @@
 <body>
   <model-viewer id="mv"
     src="./PortalANimMus-02.glb"
-    ios-src="./PortalANimMus-02.usdz"
     ar
-    ar-modes="webxr quick-look"
-    ar-placement="wall"                <!-- wall anchoring when WebXR is available -->
+    ar-modes="webxr"                 <!-- Force WebXR to avoid Quick Look auto-placement -->
+    ar-placement="wall"              <!-- 🔑 vertical plane only -->
     ar-scale="fixed"
     xr-environment
     camera-controls
@@ -62,25 +70,31 @@
     </button>
   </model-viewer>
 
-  <div id="overlay" class="start-overlay">
-    <div class="overlay-inner"></div>
-    <div class="overlay-text">Point your phone at this image and tap to place. The object will stick to the wall.</div>
+  <!-- Instruction overlay visible until first placement -->
+  <div id="startOverlay">
+    <div>
+      <img id="startImg" src="./StartImage.png" alt="Start Marker" />
+      <div id="overlayCaption">Point your phone at this image and tap on the wall to place.</div>
+    </div>
   </div>
 
+  <!-- AR hint -->
   <div id="hint">Move your phone to find a wall, then tap to place.</div>
 
+  <!-- iOS/WebXR guidance -->
   <div id="iosMessage">
     If AR didn’t open: <b>Open this page in Safari</b> (Share → Open in Safari).<br/>
-    On older iOS, it will open Quick Look (floor only).
+    iOS 17+ required for WebXR wall placement.
   </div>
 
+  <!-- Looping audio -->
   <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
   <button id="unmute">Tap to enable audio</button>
 
   <script>
     const mv = document.getElementById('mv');
     const arBtn = document.getElementById('arBtn');
-    const overlay = document.getElementById('overlay');
+    const startOverlay = document.getElementById('startOverlay');
     const hint = document.getElementById('hint');
     const bg = document.getElementById('bg');
     const unmute = document.getElementById('unmute');
@@ -89,73 +103,67 @@
     let audioUnlocked = false;
     let placed = false;
 
-    function isInAppBrowserOnIOS() {
-      const ua = navigator.userAgent || '';
-      const isIOS = /iP(hone|ad|od)/.test(ua);
-      const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
-      // In-app browsers often omit "Safari"
-      return isIOS && !isSafari;
+    // Detect in-app browsers on iOS and missing WebXR
+    function isiOS() { return /iP(hone|ad|od)/.test(navigator.userAgent); }
+    function isSafariUA() {
+      const ua = navigator.userAgent;
+      return /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
+    }
+    if (isiOS() && !isSafariUA()) {
+      iosMessage.style.display = 'block';
+    } else if (!('xr' in navigator)) {
+      iosMessage.style.display = 'block';
+    } else {
+      try {
+        navigator.xr.isSessionSupported('immersive-ar').then(s => {
+          if (!s) iosMessage.style.display = 'block';
+        }).catch(() => iosMessage.style.display = 'block');
+      } catch {}
     }
 
+    // Audio unlock
     async function tryUnlockAudio() {
       if (audioUnlocked) return;
       try {
-        await bg.play();
-        bg.pause();
-        audioUnlocked = true;
-        unmute.style.display = 'none';
-      } catch {
-        unmute.style.display = 'block';
-      }
+        await bg.play(); bg.pause();
+        audioUnlocked = true; unmute.style.display = 'none';
+      } catch { unmute.style.display = 'block'; }
     }
-
     document.addEventListener('pointerdown', tryUnlockAudio, { once: true });
     arBtn.addEventListener('click', tryUnlockAudio);
     unmute.addEventListener('click', async () => {
       try { await bg.play(); audioUnlocked = true; unmute.style.display = 'none'; } catch {}
-
     });
 
-    // WebXR support probe to show message early
-    if (isInAppBrowserOnIOS()) {
-      iosMessage.style.display = 'block';
-    } else if (navigator.xr && navigator.xr.isSessionSupported) {
-      navigator.xr.isSessionSupported('immersive-ar').then(supported => {
-        if (!supported) iosMessage.style.display = 'block';
-      }).catch(() => { iosMessage.style.display = 'block'; });
-    }
-
+    // AR lifecycle
     mv.addEventListener('ar-status', async (e) => {
       const status = e.detail.status; // 'not-presenting' | 'session-started' | 'failed'
       if (status === 'session-started') {
         iosMessage.style.display = 'none';
-        hint.classList.remove('hidden-hint');
-        if (audioUnlocked) { try { await bg.play(); } catch {} }
-      } else if (status === 'failed') {
-        // If model-viewer couldn't start AR, show guidance
-        iosMessage.style.display = 'block';
-        bg.pause();
+        hint.classList.remove('hidden');
+        // Do NOT hide the startOverlay yet — keep it until first placement
       } else {
         bg.pause();
       }
     });
 
+    // Ensure tap-to-place: we only start things after explicit placement
     mv.addEventListener('ar-placement', async () => {
       if (placed) return;
       placed = true;
-      overlay.classList.add('hidden');
-      hint.classList.add('hidden-hint');
 
-      // Start animation loop
+      // Hide overlays
+      startOverlay.classList.add('hidden');
+      hint.classList.add('hidden');
+
+      // Start animation loop (first clip) if available
       try {
         const anims = mv.availableAnimations || [];
-        if (anims.length) {
-          mv.animationName = anims[0];
-        }
+        if (anims.length) mv.animationName = anims[0];
         mv.play({ repetitions: Infinity });
       } catch {}
 
-      // Ensure audio is playing
+      // Start audio
       try { await bg.play(); } catch {}
     });
   </script>
