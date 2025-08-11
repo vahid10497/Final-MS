@@ -3,50 +3,98 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Wall AR – model-viewer</title>
+  <title>Wall AR with Audio</title>
 
   <!-- model-viewer web component -->
   <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
 
   <style>
     html,body { margin:0; height:100%; background:#111; }
-    #arHint {
-      position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
-      padding: 8px 12px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff;
-      font: 14px/1.2 system-ui, sans-serif; display:none;
+    #hint {
+      position: fixed; left:50%; bottom:16px; transform:translateX(-50%);
+      padding:8px 12px; border-radius:999px; background:rgba(0,0,0,.6); color:#fff;
+      font:14px/1.2 system-ui, sans-serif; display:none;
     }
-    model-viewer[ar-status="session-started"] + #arHint { display:block; }
+    model-viewer[ar-status="session-started"] + #hint { display:block; }
+    #unmute {
+      position:fixed; left:50%; top:16px; transform:translateX(-50%);
+      padding:8px 12px; border:none; border-radius:999px; background:#fff; display:none;
+    }
   </style>
 </head>
 <body>
-  <!-- Your GLB is in the repo root -->
   <model-viewer id="mv"
     src="./PortalANimMus-02.glb"
     ar
     ar-modes="webxr scene-viewer quick-look"
-    ar-placement="wall"            <!-- 🔑 vertical/wall placement -->
+    ar-placement="wall"           <!-- 🔑 vertical plane placement -->
     ar-scale="fixed"
     xr-environment
     camera-controls
-    exposure="1.0"
     environment-image="neutral"
+    exposure="1"
     style="width:100%; height:100%;">
-    <!-- Custom AR button (optional) -->
-    <button slot="ar-button"
+    <button id="arBtn" slot="ar-button"
       style="position:absolute; right:16px; bottom:16px; padding:10px 14px; border-radius:999px; border:none; background:#fff;">
       View in AR
     </button>
   </model-viewer>
 
-  <div id="arHint">Move your phone to find a wall, then tap to place.</div>
+  <div id="hint">Move your phone to find a wall, then tap to place.</div>
+  <button id="unmute">Tap to enable audio</button>
+
+  <!-- Background/scene audio -->
+  <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
 
   <script>
-    // Optional: small click when placement happens (remove if you don't add the file)
     const mv = document.getElementById('mv');
-    const tap = new Audio('./tap.mp3'); // put a short click named tap.mp3 in repo root, or delete these two lines
+    const arBtn = document.getElementById('arBtn');
+    const bg = document.getElementById('bg');
+    const unmute = document.getElementById('unmute');
 
-    mv.addEventListener('ar-placement', () => {
-      try { tap.play(); } catch(e) {}
+    let audioUnlocked = false;
+
+    // Some browsers require a user gesture before audio can play.
+    async function unlockAudioOnce() {
+      if (audioUnlocked) return;
+      try {
+        await bg.play();
+        bg.pause();              // prime it
+        audioUnlocked = true;
+        unmute.style.display = 'none';
+      } catch (e) {
+        // Still blocked — show a manual unmute button
+        unmute.style.display = 'block';
+      }
+    }
+
+    // Try to unlock on first user gesture anywhere
+    const tryUnlock = () => { unlockAudioOnce(); document.removeEventListener('pointerdown', tryUnlock); };
+    document.addEventListener('pointerdown', tryUnlock, { once: true });
+
+    // Also try when tapping the AR button
+    arBtn.addEventListener('click', unlockAudioOnce);
+
+    // Manual fallback button if policy still blocks autoplay
+    unmute.addEventListener('click', async () => {
+      try { await bg.play(); audioUnlocked = true; unmute.style.display = 'none'; } catch(e) {}
+    });
+
+    // Start/stop audio with AR session lifecycle
+    mv.addEventListener('ar-status', async (e) => {
+      const status = e.detail.status; // 'not-presenting' | 'session-started' | 'failed'
+      if (status === 'session-started') {
+        try { await bg.play(); } catch(e) { unmute.style.display = 'block'; }
+      } else {
+        bg.pause();
+      }
+    });
+
+    // Optional: play a short feedback when placement occurs (uses same bg audio here)
+    mv.addEventListener('ar-placement', async () => {
+      if (bg.paused) {
+        try { await bg.play(); } catch(e) { /* ignore */ }
+      }
     });
   </script>
 </body>
