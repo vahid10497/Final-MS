@@ -12,7 +12,7 @@
     html,body { margin:0; height:100%; background:#111; }
     model-viewer { width:100%; height:100%; display:block; }
 
-    /* Transparent start image overlay (stays until first placement) */
+    /* Transparent start image overlay (stays until first placement; doesn't block the AR button) */
     #startOverlay{
       position:fixed; inset:0; display:grid; place-items:center;
       background:rgba(0,0,0,.35); z-index:10; transition:opacity .35s; pointer-events:none;
@@ -28,6 +28,7 @@
       font:600 16px/1.3 system-ui; text-shadow:0 2px 8px rgba(0,0,0,.5);
     }
 
+    /* Hint (unchanged) */
     #hint {
       position: fixed; left:50%; bottom:16px; transform:translateX(-50%);
       padding:8px 12px; border-radius:999px; background:rgba(0,0,0,.6); color:#fff;
@@ -53,12 +54,13 @@
   <model-viewer id="mv"
     src="./PortalANimMus-02.glb"
     ar
-    ar-modes="webxr quick-look"          <!-- Android=WebXR (tap+wall); iOS=Quick Look fallback -->
-    ios-src="./PortalANimMus-02.usdz"    <!-- needed so iOS opens AR -->
-    ar-placement="wall"                   <!-- vertical plane when WebXR runs -->
+    ar-modes="webxr quick-look"          <!-- Android = WebXR; iOS = Quick Look -->
+    ios-src="./PortalANimMus-02.usdz"    <!-- iOS fallback asset -->
+    ar-placement="wall"                   <!-- vertical surfaces -->
     ar-scale="fixed"
     xr-environment
     camera-controls
+    interaction-prompt="none"
     environment-image="neutral"
     exposure="1"
     style="width:100%; height:100%;">
@@ -68,10 +70,10 @@
     </button>
   </model-viewer>
 
+  <!-- Keep #hint immediately after model-viewer (for the CSS selector to work) -->
   <div id="hint">Move your phone to find a wall, then tap to place.</div>
-  <button id="unmute">Tap to enable audio</button>
 
-  <!-- Background/scene audio (WebXR path only) -->
+  <button id="unmute">Tap to enable audio</button>
   <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
 
   <script>
@@ -84,18 +86,20 @@
     let audioUnlocked = false;
     let placed = false;
 
-    // --- Make Android use WebXR (tap+wall) and iOS use Quick Look automatically
+    // --- Make Android use WebXR (tap+wall), iOS use Quick Look
     const isiOS = /iP(hone|ad|od)/.test(navigator.userAgent);
     if (isiOS) {
-      // iOS: Quick Look (opens native viewer; no page audio control)
+      // iOS: Quick Look (native) — page audio control won't apply inside viewer
       mv.setAttribute('ar-modes', 'quick-look');
+      mv.setAttribute('ios-src', './PortalANimMus-02.usdz');
     } else {
-      // Android: WebXR with wall placement and tap-to-place
+      // Android: stay in WebXR, vertical placement AND require a TAP (no auto-placement)
       mv.setAttribute('ar-modes', 'webxr');
       mv.setAttribute('ar-placement', 'wall');
+      mv.setAttribute('xr-hit-test', 'transient-input'); // ← require tap to place
     }
 
-    // --- Audio unlock (only meaningful in WebXR; Quick Look leaves the page)
+    // --- Audio unlock (WebXR path only; Quick Look leaves the page)
     async function unlockAudioOnce() {
       if (audioUnlocked) return;
       try { await bg.play(); bg.pause(); audioUnlocked = true; unmute.style.display = 'none'; }
@@ -108,17 +112,22 @@
       try { await bg.play(); audioUnlocked = true; unmute.style.display = 'none'; } catch(e) {}
     });
 
-    // Keep overlay until placement (WebXR). For iOS Quick Look, hide on button tap.
+    // Keep overlay until *first placement*
     mv.addEventListener('ar-status', (e) => {
       const status = e.detail.status; // 'not-presenting' | 'session-started' | 'failed'
-      if (status !== 'session-started') bg.pause();
+      if (status !== 'session-started') {
+        bg.pause();
+        placed = false;
+        startOverlay.classList.remove('hidden'); // show again if user exits AR
+      }
     });
 
     mv.addEventListener('ar-placement', async () => {
       if (placed) return;
       placed = true;
       startOverlay.classList.add('hidden');
-      // Start audio after placement (WebXR path)
+
+      // Start audio after user placement (WebXR on Android)
       if (!isiOS && bg.paused) {
         try { await bg.play(); } catch(e) {}
       }
