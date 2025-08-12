@@ -1,183 +1,127 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Android WebXR – Tap to place on wall</title>
-<style>
-  html,body{margin:0;height:100%;background:#111;overflow:hidden}
-  canvas{display:block}
-  #status{position:fixed;left:50%;top:12px;transform:translateX(-50%);background:#fff;
-    color:#111;padding:10px 14px;border-radius:12px;font:14px system-ui;z-index:30;display:none}
-  #startOverlay{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.35);
-    z-index:20;transition:opacity .35s}
-  #startOverlay.hidden{opacity:0;pointer-events:none}
-  #startImg{width:min(92vw,520px);height:auto;opacity:.85;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-  #caption{margin-top:10px;color:#fff;text-align:center;font:600 16px/1.3 system-ui;text-shadow:0 2px 8px rgba(0,0,0,.5)}
-  #hint{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);padding:8px 12px;border-radius:999px;
-    background:rgba(0,0,0,.6);color:#fff;font:14px system-ui;z-index:25;display:none}
-  #enter{position:fixed;right:16px;bottom:16px;z-index:30;padding:10px 14px;border:none;border-radius:999px;background:#fff;font:600 14px system-ui}
-  #unmute{position:fixed;left:50%;top:62px;transform:translateX(-50%);padding:8px 12px;border:none;border-radius:999px;background:#fff;z-index:30;display:none}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Wall AR export</title>
+  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+  <style>
+    html,body { margin:0; height:100%; background:#111; }
+    model-viewer { width:100%; height:100%; display:block; }
+
+    #startOverlay {
+      position:fixed; inset:0; display:grid; place-items:center;
+      background:rgba(0,0,0,.35); z-index:10; transition:opacity .35s; pointer-events:none;
+    }
+    #startOverlay.hidden { opacity:0; pointer-events:none; }
+    #startImg {
+      width:min(92vw,520px); height:auto; opacity:.85;
+      border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.35);
+    }
+    #overlayCaption {
+      margin-top:10px; color:#fff; text-align:center;
+      font:600 16px/1.3 system-ui; text-shadow:0 2px 8px rgba(0,0,0,.5);
+    }
+
+    #hint {
+      position: fixed; left:50%; bottom:16px; transform:translateX(-50%);
+      padding:8px 12px; border-radius:999px; background:rgba(0,0,0,.6); color:#fff;
+      font:14px/1.2 system-ui, sans-serif; display:none;
+    }
+    model-viewer[ar-status="session-started"] + #hint { display:block; }
+
+    #unmute {
+      position:fixed; left:50%; top:16px; transform:translateX(-50%);
+      padding:8px 12px; border:none; border-radius:999px; background:#fff; display:none;
+    }
+
+    #iosMsg {
+      position:fixed; left:50%; top:64px; transform:translateX(-50%);
+      background:#fff; padding:8px 12px; border-radius:12px; font:14px system-ui;
+      display:none; z-index:20; text-align:center; max-width:92vw;
+    }
+  </style>
 </head>
 <body>
-  <div id="status"></div>
   <div id="startOverlay">
     <div>
-      <img id="startImg" src="./StartImage.png" alt="Start" />
-      <div id="caption">Point at a wall, then <b>tap</b> to place.</div>
+      <img id="startImg" src="./" alt="Start" />
+      <div id="overlayCaption">Point your phone at this image, then <b>tap a wall</b> to place.</div>
     </div>
   </div>
-  <div id="hint">Move to detect a wall, then tap to place.</div>
-  <button id="enter">View in AR</button>
+
+  <model-viewer id="mv"
+    src="./Assets\PortalANimMusAgustFinal_1.glb"
+    ar
+    ar-modes="webxr quick-look"
+    
+    ar-placement="wall"
+    xr-hit-test="transient-input"
+    ar-scale="fixed"
+    xr-environment
+    camera-controls
+    interaction-prompt="none"
+    environment-image="neutral"
+    exposure="1"
+    style="width:100%; height:100%;">
+    <button id="arBtn" slot="ar-button"
+      style="position:absolute; right:16px; bottom:16px; padding:10px 14px; border-radius:999px; border:none; background:#fff;">
+      View in AR
+    </button>
+  </model-viewer>
+
+  <div id="hint">Move your phone to find a wall, then tap to place.</div>
+
+  <div id="iosMsg">On iPhone, AR Quick Look requires a USDZ. This demo will open inline 3D if no USDZ is present.</div>
+
   <button id="unmute">Tap to enable audio</button>
-  <audio id="bg" src="./museumversion_250709.mp3" loop preload="auto"></audio>
+  <audio id="bg" src="./" loop preload="auto"></audio>
 
-<script type="module">
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+  <script>
+    const mv = document.getElementById('mv');
+    const arBtn = document.getElementById('arBtn');
+    const startOverlay = document.getElementById('startOverlay');
+    const bg = document.getElementById('bg');
+    const unmute = document.getElementById('unmute');
+    const iosMsg = document.getElementById('iosMsg');
 
-const statusBox = document.getElementById('status');
-const startOverlay = document.getElementById('startOverlay');
-const hint = document.getElementById('hint');
-const enter = document.getElementById('enter');
-const unmute = document.getElementById('unmute');
-const bg = document.getElementById('bg');
+    let audioUnlocked = false;
+    let placed = false;
 
-function status(msg,ms=5000){ statusBox.textContent=msg; statusBox.style.display='block'; if(ms>0)setTimeout(()=>statusBox.style.display='none',ms); }
+    const isiOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+    const hasUSDZ = false;
+    if (isiOS && !hasUSDZ) iosMsg.style.display = 'block';
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 50);
-const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-renderer.setSize(innerWidth, innerHeight);
-renderer.xr.enabled = true;
-document.body.appendChild(renderer.domElement);
+    if (isiOS) {
+      mv.setAttribute('ar-modes', hasUSDZ ? 'quick-look' : 'webxr');
+    } else {
+      mv.setAttribute('ar-modes', 'webxr');
+      mv.setAttribute('ar-placement', 'wall');
+      mv.setAttribute('xr-hit-test', 'transient-input');
+    }
 
-window.addEventListener('resize', ()=>{
-  camera.aspect = innerWidth/innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+    async function unlockAudioOnce() {
+      if (audioUnlocked) return;
+      try { await bg.play(); bg.pause(); audioUnlocked = true; unmute.style.display = 'none'; }
+      catch { unmute.style.display = 'block'; }
+    }
+    document.addEventListener('pointerdown', unlockAudioOnce, { once: true });
+    arBtn.addEventListener('click', unlockAudioOnce);
+    unmute.addEventListener('click', async () => { try { await bg.play(); audioUnlocked = true; unmute.style.display = 'none'; } catch {} });
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
-
-// Reticle for valid wall hits
-const reticle = new THREE.Mesh(
-  new THREE.RingGeometry(0.06, 0.08, 48, 1),
-  new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
-);
-reticle.matrixAutoUpdate = false;
-reticle.visible = false;
-scene.add(reticle);
-
-// Audio (WebAudio for AR session)
-const listener = new THREE.AudioListener();
-camera.add(listener);
-const sound = new THREE.Audio(listener);
-const audioLoader = new THREE.AudioLoader();
-audioLoader.load('./museumversion_250709.mp3', (buf)=>{ sound.setBuffer(buf); sound.setLoop(true); sound.setVolume(1.0); });
-
-let portal, mixer, clipAction;
-const loader = new GLTFLoader();
-loader.load('./PortalANimMus-02.glb', (gltf)=>{
-  portal = gltf.scene; portal.visible = false; scene.add(portal);
-  if (gltf.animations?.length){
-    mixer = new THREE.AnimationMixer(portal);
-    clipAction = mixer.clipAction(gltf.animations[0]);
-    clipAction.setLoop(THREE.LoopRepeat);
-  }
-});
-
-let session, refSpace, viewerSpace, hitSrc;
-let placed = false;
-let audioUnlocked = false;
-
-async function unlockAudio(){
-  if (audioUnlocked) return;
-  try { await bg.play(); bg.pause(); audioUnlocked = true; unmute.style.display='none'; }
-  catch { unmute.style.display='block'; }
-}
-document.addEventListener('pointerdown', unlockAudio, { once:true });
-unmute.addEventListener('click', async()=>{ try{ await bg.play(); audioUnlocked=true; unmute.style.display='none'; }catch{} });
-
-enter.addEventListener('click', async ()=>{
-  await unlockAudio();
-  try{
-    if(!navigator.xr) throw new Error('WebXR not detected. Use Chrome on Android.');
-    const ok = await navigator.xr.isSessionSupported('immersive-ar');
-    if(!ok) throw new Error('AR not supported on this device/browser.');
-
-    session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay','unbounded','anchors'],
-      domOverlay: { root: document.body }
+    mv.addEventListener('ar-status', (e) => {
+      const status = e.detail.status;
+      if (status !== 'session-started') { bg.pause(); placed = false; startOverlay.classList.remove('hidden'); }
     });
-    renderer.xr.setSession(session);
-    refSpace = await session.requestReferenceSpace('local');
-    viewerSpace = await session.requestReferenceSpace('viewer');
-    hitSrc = await session.requestHitTestSource({ space: viewerSpace });
 
-    // Tap to place
-    const controller = renderer.xr.getController(0);
-    controller.addEventListener('select', ()=>{
-      if (!reticle.visible || placed || !portal) return;
-      portal.matrix.copy(reticle.matrix);
-      portal.matrix.decompose(portal.position, portal.quaternion, portal.scale);
-      portal.visible = true;
+    mv.addEventListener('ar-placement', async () => {
+      if (placed) return;
       placed = true;
       startOverlay.classList.add('hidden');
-      hint.style.display = 'none';
-      if (clipAction) clipAction.play();
-      if (sound.buffer && !sound.isPlaying) { try { sound.play(); } catch{} }
-    });
-    scene.add(controller);
-
-    session.addEventListener('end', ()=>{
-      hint.style.display='none'; placed=false; reticle.visible=false;
-      if (portal) portal.visible=false; sound.stop();
+      if (!isiOS && bg.paused) { try { await bg.play(); } catch {} }
     });
 
-    hint.style.display='block';
-    renderer.setAnimationLoop(renderLoop);
-  }catch(e){ status(e.message || String(e)); }
-});
-
-const poseM = new THREE.Matrix4();
-const poseQ = new THREE.Quaternion();
-const n = new THREE.Vector3();
-
-// treat a hit as "vertical" if its normal's Y is small
-function isVertical(matrix){
-  poseQ.setFromRotationMatrix(matrix);
-  n.set(0,0,-1).applyQuaternion(poseQ);
-  return Math.abs(n.y) < 0.3;
-}
-
-let lastTime = 0;
-function renderLoop(t, frame){
-  const dt = lastTime ? (t - lastTime)/1000 : 0.016; lastTime = t;
-  if (mixer) mixer.update(dt);
-
-  if (frame && hitSrc && !placed){
-    const hits = frame.getHitTestResults(hitSrc);
-    if (hits.length){
-      const pose = hits[0].getPose(refSpace);
-      if (pose){
-        poseM.fromArray(pose.transform.matrix);
-        if (isVertical(poseM)){
-          reticle.visible = true;
-          reticle.matrix.copy(poseM);
-        } else {
-          reticle.visible = false;
-        }
-      }
-    } else {
-      reticle.visible = false;
-    }
-  }
-  renderer.render(scene, camera);
-}
-</script>
+    mv.addEventListener('quick-look-button-tapped', () => { startOverlay.classList.add('hidden'); });
+  </script>
 </body>
 </html>
